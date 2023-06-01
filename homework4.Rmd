@@ -1,7 +1,7 @@
 ---
-title: "Homework 4: Machine Learning"
+title: 'Homework 4: Machine Learning'
 author: "Ignacio Landerreche"
-date: "`r Sys.Date()`"
+date: '`r Sys.Date()`'
 output:
   html_document:
     theme: flatly
@@ -11,6 +11,8 @@ output:
     toc_float: yes
     code_folding: show
   pdf_document:
+    toc: yes
+  word_document:
     toc: yes
 ---
 
@@ -116,7 +118,7 @@ bechdel_test %>%
 ## Feature exploration
 
 ## Any outliers? 
-Many, specially in intgross and domgross
+Many, specially in intgross and domgross. Particularily there is a single movie which is very big outlier in the "Fail" in domgross_2013
 
 ```{r}
 
@@ -140,10 +142,10 @@ bechdel %>%
 ## Scatterplot - Correlation Matrix
 Some notes:
 1. Regarding the "test" variable:
-  a) there is a left skew in both pass and fail for the budget which suggest that the sample consists of movies     with high budget.
+  a) there is a left skew in both pass and fail for the budget which suggest that the sample consists of movies with high budget.
   b) There seems to be a more symmetrical distribution with the scores for both pass and fail test
 2. Budget variable:
-  a)  It seems to be that there is a very high outlier for a fail film, and in frequency there seems to be more       outliers in the pass films than the fail films.
+  a)  It seems to be that there is a very high outlier for a fail film, and in frequency there seems to be more outliers in the pass films than the fail films.
   b) distribution is right skewed with budget
   c) no clear relationship with scores
 3. Domgross and intgross: looks like they have a very high linear correlation (0.93), and both are highly         correlated with budget too
@@ -275,7 +277,7 @@ plot(draw_tree)
 # Cross Validation
 
 Run the code below. What does it return? 
-_ANSWER_: The Vfold is a cross-validation feature from R, it divides the data in 10 different bins with equal size samples. Each of the 10 partitions will be chosen to be the testing set once with the other 9 partitions used for training. 
+_ANSWER_: The Vfold is a cross-validation feature from R, it divides the data in 10 different bins with equal-sized samples. Each of the 10 partitions will be chosen to be the testing set once with the other 9 partitions used for training. 
 
 ```{r}
 set.seed(123)
@@ -312,21 +314,6 @@ Unnest the metrics column from a tidymodels `fit_resamples()`
 
 collect_metrics(lr_fit)
 collect_metrics(tree_fit)
-
-
-
-lr_res<- lr_mod %>% 
-  fit_resamples(test ~ metascore + imdb_rating,
-                resamples=bechdel_folds,
-                control=control_resamples(save_pred=TRUE))
-
-tree_res<-tree_fit %>% 
-  fit_resamples(resamples=bechdel_folds,
-                control=control_resamples(save_pred=TRUE))
-
-
-
-
 ```
 
 
@@ -338,7 +325,7 @@ tree_preds <- tree_mod %>%
     control = control_resamples(save_pred = TRUE) #<<
   )
 
-# What does the data for ROC look like?
+# What does the data for ROC look like? Very bad, it is almost like the line meaning it is almost random.
 tree_preds %>% 
   collect_predictions() %>% 
   roc_curve(truth = test, .pred_Fail)  
@@ -490,8 +477,7 @@ movie_rec <- recipe(test ~ ., data = bechdel) %>%
   step_novel(all_nominal(), -all_outcomes()) %>% # Use *before* `step_dummy()` so new level is dummified
   step_dummy(all_nominal(), -all_outcomes()) %>% 
   step_zv(all_numeric(), -all_outcomes())  %>% 
-  step_normalize(all_numeric()) %>% 
-  step_corr(all_predictors(), threshold = 0.75, method = "spearman") 
+  step_normalize(all_numeric()) 
 
 movie_rec
 ```
@@ -585,9 +571,9 @@ knn_wflow <-
 
 HEADS UP
 
-1. How many models have you specified?
-2. What's the difference between a model specification and a workflow?
-3. Do you need to add a formula (e.g., `test ~ .`)  if you have a recipe?
+1. How many models have you specified? _ANSWER_: 5 models
+2. What's the difference between a model specification and a workflow? _ANSWER_ The workflows involves many steps (like choosing the model, adding a recipe, etc), in which the model specification is one step. However for other machine learning types one may need to have more steps within the workflow. 
+3. Do you need to add a formula (e.g., `test ~ .`)  if you have a recipe? _ANSWER_ No, because the recipe already has the formula embedded.
 
 
 # Model Comparison
@@ -596,29 +582,239 @@ You now have all your models. Adapt the code from slides `code-from-slides-CA-ho
 
 
 ```{r}
+## Logistic regression results
+log_res <- log_wflow %>% 
+  fit_resamples(
+    resamples = bechdel_folds, 
+    metrics = metric_set(
+      recall, precision, f_meas, accuracy,
+      kap, roc_auc, sens, spec),
+    control = control_resamples(save_pred = TRUE)) 
+
+# Show average performance over all folds (note that we use log_res):
+log_res %>%  collect_metrics(summarize = TRUE)
+
+# Show performance for every single fold:
+log_res %>%  collect_metrics(summarize = FALSE)
+
+
+
+## `collect_predictions()` and get confusion matrix{.smaller}
+
+log_pred <- log_res %>% collect_predictions()
+
+log_pred %>%  conf_mat(test, .pred_class) 
+
+log_pred %>% 
+  conf_mat(test, .pred_class) %>% 
+  autoplot(type = "mosaic") +
+  geom_label(aes(
+      x = (xmax + xmin) / 2, 
+      y = (ymax + ymin) / 2, 
+      label = c("TP", "FN", "FP", "TN")))
+
+
+log_pred %>% 
+  conf_mat(test, .pred_class) %>% 
+  autoplot(type = "heatmap")
+
+
+## ROC Curve
+
+log_pred %>% 
+  group_by(id) %>% # id contains our folds
+  roc_curve(test, .pred_Fail) %>% 
+  autoplot()
+
+```
+
+```{r}
+## Decision Tree results
+
+tree_res <-
+  tree_wflow %>% 
+  fit_resamples(
+    resamples = bechdel_folds,
+    metrics = metric_set(
+      recall, precision, f_meas, 
+      accuracy, kap,
+      roc_auc, sens, spec),
+    control = control_resamples(save_pred = TRUE)
+    ) 
+
+tree_res %>%  collect_metrics(summarize = TRUE)
+```
+
+```{r}
+
+## Random Forest
+
+rf_res <-
+  rf_wflow %>% 
+  fit_resamples(
+    resamples = bechdel_folds, 
+    metrics = metric_set(
+      recall, precision, f_meas, 
+      accuracy, kap,
+      roc_auc, sens, spec),
+    control = control_resamples(save_pred = TRUE)
+    ) 
+
+rf_res %>%  collect_metrics(summarize = TRUE)
+```
+
+```{r}
+## Boosted tree - XGBoost
+
+xgb_res <- 
+  xgb_wflow %>% 
+  fit_resamples(
+    resamples = bechdel_folds, 
+    metrics = metric_set(
+      recall, precision, f_meas, 
+      accuracy, kap,
+      roc_auc, sens, spec),
+    control = control_resamples(save_pred = TRUE)
+    ) 
+
+xgb_res %>% collect_metrics(summarize = TRUE)
+
+```
+
+
+```{r}
+## K-nearest neighbour
+library(kknn)
+knn_res <- 
+  knn_wflow %>% 
+  fit_resamples(
+    resamples = bechdel_folds, 
+    metrics = metric_set(
+      recall, precision, f_meas, 
+      accuracy, kap,
+      roc_auc, sens, spec),
+    control = control_resamples(save_pred = TRUE)
+    ) 
+
+knn_res %>% collect_metrics(summarize = TRUE)
+
+```
+
+
+```{r}
+## Model Comparison
+
+log_metrics <- 
+  log_res %>% 
+  collect_metrics(summarise = TRUE) %>%
+  # add the name of the model to every row
+  mutate(model = "Logistic Regression") 
+
+tree_metrics <- 
+  tree_res %>% 
+  collect_metrics(summarise = TRUE) %>%
+  mutate(model = "Decision Tree")
+
+rf_metrics <- 
+  rf_res %>% 
+  collect_metrics(summarise = TRUE) %>%
+  mutate(model = "Random Forest")
+
+xgb_metrics <- 
+  xgb_res %>% 
+  collect_metrics(summarise = TRUE) %>%
+  mutate(model = "XGBoost")
+
+knn_metrics <- 
+  knn_res %>% 
+  collect_metrics(summarise = TRUE) %>%
+  mutate(model = "Knn")
+
+# create dataframe with all models
+model_compare <- bind_rows(log_metrics,
+                           tree_metrics,
+                           rf_metrics,
+                           xgb_metrics,
+                           knn_metrics) 
+
+#Pivot wider to create barplot
+  model_comp <- model_compare %>% 
+  select(model, .metric, mean, std_err) %>% 
+  pivot_wider(names_from = .metric, values_from = c(mean, std_err)) 
+
+# show mean are under the curve (ROC-AUC) for every model
+model_comp %>% 
+  arrange(mean_roc_auc) %>% 
+  mutate(model = fct_reorder(model, mean_roc_auc)) %>% # order results
+  ggplot(aes(model, mean_roc_auc, fill=model)) +
+  geom_col() +
+  coord_flip() +
+  scale_fill_brewer(palette = "Blues") +
+   geom_text(
+     size = 3,
+     aes(label = round(mean_roc_auc, 2), 
+         y = mean_roc_auc + 0.08),
+     vjust = 1
+  )+
+  theme_light()+
+  theme(legend.position = "none")+
+  labs(y = NULL)
 
 ```
 
 
 
-# Deliverables
+```{r}
+#I will choose the Random Forest model as it is the one with highest Mean ROC AUS
 
-There is a lot of explanatory text, comments, etc. You do not need these, so delete them and produce a stand-alone document that you could share with someone. Knit the edited and completed R Markdown (Rmd) file as a Word or HTML document (use the "Knit" button at the top of the script editor window) and upload it to Canvas. You must be commiting and pushing your changes to your own Github repo as you go along.
+last_fit_rf <- last_fit(rf_wflow, 
+                        split = data_split,
+                        metrics = metric_set(
+                          accuracy, f_meas, kap, precision,
+                          recall, roc_auc, sens, spec))
+
+last_fit_rf %>% collect_metrics(summarize = TRUE)
+
+#Compare to training
+rf_res %>% collect_metrics(summarize = TRUE)
+```
+
+```{r}
+
+## Variable importance using `{vip}` package
+
+library(vip)
+
+last_fit_rf %>% 
+  pluck(".workflow", 1) %>%
+  extract_fit_parsnip() %>% 
+  vip(num_features = 10) +
+  theme_light()
+
+
+## Final Confusion Matrix
+
+last_fit_rf %>%
+  collect_predictions() %>% 
+  conf_mat(test, .pred_class) %>% 
+  autoplot(type = "heatmap")
+
+
+## Final ROC curve
+last_fit_rf %>% 
+  collect_predictions() %>% 
+  roc_curve(test, .pred_Fail) %>% 
+  autoplot()
+
+
+```
+
 
 # Details
 
--   Who did you collaborate with: TYPE NAMES HERE
--   Approximately how much time did you spend on this problem set: ANSWER HERE
--   What, if anything, gave you the most trouble: ANSWER HERE
+-   Who did you collaborate with: Myself
+-   Approximately how much time did you spend on this problem set: One hour
+-   What, if anything, gave you the most trouble: Understanding the differences between workflow, models and fitting
 
-**Please seek out help when you need it,** and remember the [15-minute rule](https://dsb2023.netlify.app/syllabus/#the-15-minute-rule){target="_blank"}. You know enough R (and have enough examples of code from class and your readings) to be able to do this. If you get stuck, ask for help from others, post a question on Slack-- and remember that I am here to help too!
 
-> As a true test to yourself, do you understand the code you submitted and are you able to explain it to someone else?
 
-# Rubric
-
-13/13: Problem set is 100% completed. Every question was attempted and answered, and most answers are correct. Code is well-documented (both self-documented and with additional comments as necessary). Used tidyverse, instead of base R. Graphs and tables are properly labelled. Analysis is clear and easy to follow, either because graphs are labeled clearly or you've written additional text to describe how you interpret the output. Multiple Github commits. Work is exceptional. I will not assign these often.
-
-8/13: Problem set is 60--80% complete and most answers are correct. This is the expected level of performance. Solid effort. Hits all the elements. No clear mistakes. Easy to follow (both the code and the output). A few Github commits.
-
-5/13: Problem set is less than 60% complete and/or most answers are incorrect. This indicates that you need to improve next time. I will hopefully not assign these often. Displays minimal effort. Doesn't complete all components. Code is poorly written and not documented. Uses the same type of plot for each graph, or doesn't use plots appropriate for the variables being analyzed. No Github commits.
