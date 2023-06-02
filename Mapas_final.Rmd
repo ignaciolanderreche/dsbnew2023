@@ -1,0 +1,128 @@
+---
+title: "Mapas"
+author: "Ignacio Landerreche"
+date: "2023-06-01"
+output: html_document
+---
+```{r}
+library(tidyverse)
+library(sf)
+library(rnaturalearth)
+library(countrycode)
+library(ggrepel)
+library(ggplot2)
+library(tmap)
+library(gganimate)
+library(shiny)
+```
+
+
+```{r}
+world_shapefile <- ne_download(scale = "large", type = "countries", category = "cultural", returnclass = "sf")
+my_map<-read.csv("paises.csv")
+
+visited<-my_map %>% 
+  rename(all_time=All.time) %>% 
+  pivot_longer(cols=2:15,
+               names_to="year",
+               values_to="visited")
+
+
+countries_visited<-world_shapefile %>% 
+  select(geometry,NAME,ISO_A3)%>% 
+  right_join(visited,by=c("ISO_A3"="Country"))
+
+#https://www.youtube.com/watch?v=FoqiFR5ZCic
+```
+
+```{r}
+#Map with all years using GGPLOT
+world_shapefile %>% 
+  filter(ADMIN!="Antarctica") %>%  
+  st_transform(crs="+proj=robin") %>% 
+  ggplot() +
+  geom_sf(color="darkgrey")+
+  geom_sf(data=countries_visited,aes(fill=c(visited)))+
+  facet_wrap(~year)+
+  scale_fill_manual(values=c("lightgrey","royalblue"))+
+  theme_minimal()+
+  theme(plot.title=element_text(face="bold"),legend.position="none",axis.text.x=element_blank())+
+  labs(title="Countries I have visited in my life")
+
+```
+```{r} 
+#Inputs for maps in tmap
+my_map_col<-read.csv("paises_col.csv")
+
+world_shapefile_new<-world_shapefile %>%
+  select(geometry,NAME,ISO_A3,ISO_A3_EH,ADMIN) %>% 
+  left_join(my_map_col,by=c("ISO_A3_EH"="Country")) %>% 
+  rename(all_time=All.time)%>% 
+  pivot_longer(cols=6:19,names_to="year",values_to="visited")%>% 
+  mutate(visited = if_else(is.na(visited), "grey", visited)) 
+ 
+```
+
+``` {r}
+tmap_mode("plot")
+world_shapefile_new %>% 
+  filter(ADMIN!="Antarctica") %>% 
+  filter(year!="all_time") %>% 
+  st_transform(crs="+proj=robin") %>% 
+  tm_shape()+
+  tm_borders()+
+  tm_fill(col="visited")+
+  tm_facets(by="year")
+```
+
+```{r}
+tmap_mode("view")
+tmap_options(check.and.fix = TRUE)
+world_shapefile_new %>% 
+  filter(year=="all_time")%>% 
+  filter(ADMIN!="Antarctica") %>% 
+  st_transform(crs="+proj=robin") %>% 
+  tm_shape()+
+  tm_borders()+
+  tm_fill(col="visited")
+ 
+```
+
+
+```{r}
+#Shiny App
+
+ui<-fluidPage(
+  titlePanel("Countries I visited during that year"),
+  sidebarLayout(
+      fluidRow(
+          column(4,
+                 selectInput(inputId = "year",
+            label = "Year:",
+            choices = c(unique(as.character(world_shapefile_new$year)))
+              ))),
+      mainPanel(
+      tmapOutput("map")
+      )
+    ))
+
+  server<-function(input, output) {
+    output$map <- renderTmap({
+      tmap_mode("view")
+      tmap_options(check.and.fix = TRUE)
+      world_shapefile_new %>% 
+  filter(ADMIN!="Antarctica") %>% 
+  filter(year==input$year) %>% 
+  st_transform(crs="+proj=robin") %>% 
+  tm_shape()+
+  tm_borders()+
+  tm_fill(col="visited")
+    })
+  }
+
+
+shinyApp(ui=ui,server=server)
+
+
+```
+
