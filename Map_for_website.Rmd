@@ -1,0 +1,50 @@
+---
+title: "Map for webpage"
+author: "Ignacio Landerreche"
+date: "2023-06-06"
+output: html_document
+---
+```{r}
+
+library(tidyverse)
+library(sf)
+library(rnaturalearth)
+library(countrycode)
+library(ggrepel)
+library(ggplot2)
+library(tmap)
+library(gganimate)
+library(shiny)
+
+```
+
+
+
+
+```{r} 
+#Inputs for maps in tmap
+my_map_col<-read.csv("paises_col.csv")
+world_shapefile <- ne_download(scale = "large", type = "countries", category = "cultural", returnclass = "sf") %>% filter(ADMIN!="Antarctica") %>%  
+  st_transform(crs="+proj=robin")
+
+world_shapefile_new<-world_shapefile %>%
+  select(geometry,NAME,ISO_A3,ISO_A3_EH,ADMIN) %>% 
+  left_join(my_map_col,by=c("ISO_A3_EH"="Country")) %>% 
+  rename(all_time=All.time)%>% 
+  pivot_longer(cols=6:19,names_to="year",values_to="visited")%>% 
+  mutate(visited = if_else(is.na(visited), "grey", visited)) 
+```
+Here is a view of all the countries I have visited in my life.
+
+```{r}
+tmap_mode("view")
+tmap_options(check.and.fix = TRUE)
+world_shapefile_new %>% 
+  filter(year=="all_time")%>% 
+  tm_shape()+
+  tm_borders()+
+  tm_fill(col="visited")
+
+
+ 
+```
